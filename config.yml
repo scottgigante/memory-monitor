@@ -1,0 +1,18 @@
+memory:
+  __units: fraction of total memory
+  critical_fraction: 0.1
+  idle_timeout_hours:
+    0.5: 0
+    0.2: 6
+    0.1: 24
+    0.05: 168
+    0.01: 672
+time:
+  __units: seconds
+  min_idle_time: 360
+  warning_cooldown: 3600
+  update: 600
+cpu:
+  __units: logical cores
+  active_usage: 0.05
+email: your@email.com
