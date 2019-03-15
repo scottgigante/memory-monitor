@@ -170,6 +170,10 @@ class ProcessGroup():
 class MemoryMonitor():
 
     def __init__(self):
+        self.superuser = os.geteuid() == 0
+        if not self.superuser:
+            print("memory-monitor does not have superuser privileges. "
+                  "Monitoring user processes only.", file=sys.stderr)
         self.processes = dict()
 
     def fetch_processes(self):
@@ -184,6 +188,11 @@ class MemoryMonitor():
                                 delimiter=' ', skipinitialspace=True,
                                 fieldnames=['pgid', 'pid', 'rss', 'cputime', 'user'])
         df = pd.DataFrame([r for r in reader])
+        if not self.superuser:
+            # only local user
+            print(df.shape)
+            df = df.loc[df['user'] == os.environ['USER']]
+            print(df.shape)
         # convert to numeric
         df['pgid'] = df['pgid'].values.astype(int)
         df['pid'] = df['pid'].values.astype(int)
