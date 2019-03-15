@@ -68,7 +68,7 @@ def fetch_pid_memory_usage(pid):
             for line in smaps:
                 if line.startswith("Pss"):
                     pss += int(line.split(" ")[-2]) + pss_adjust
-    except (FileNotFoundError, ProcessLookupError):
+    except (FileNotFoundError, ProcessLookupError, PermissionError):
         pass
     return pss
 
@@ -90,6 +90,7 @@ class ProcessGroup():
 
     @property
     def idle_hours(self):
+        global _HOUR
         return self.idle_seconds / _HOUR
 
     @property
@@ -137,9 +138,10 @@ class ProcessGroup():
         return 0
 
     def log(self, code="OK"):
-        print("{}: {}".format(code, self))
+        print("{}: {}".format(code, self), file=sys.stderr)
 
     def format_warning(self):
+        global _USER_WARNING
         return _USER_WARNING.format(
             user=self.user,
             pgid=self.pgid,
@@ -149,7 +151,6 @@ class ProcessGroup():
             percentage=self.memory_percent)
 
     def warn(self):
-        global _USER_WARNING
         send_mail(subject="Memory Usage Warning",
                   message=self.format_warning())
 
