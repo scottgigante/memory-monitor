@@ -24,17 +24,17 @@ with open("config.yml", 'r') as handle:
     config = yaml.load(handle.read())
 
 # Proportion of available memory for which we launch an alert
-_MEMORY_CRITICAL = config['memory']['critical_fraction']
+_CRITICAL_FRACTION = config['memory']['critical_fraction']
 # Amount of time between updates
-_UPDATE_STEP = config['time']['update']
+_UPDATE = config['time']['update']
 
 # Process parameters
 # Minimum CPU above which a process is considered active, in CPUs
-_MIN_CPU_USAGE = config['cpu']['active_usage']
+_ACTIVE_USAGE = config['cpu']['active_usage']
 # Minimum time to wait between warnnig the same process, in hours
-_MIN_WARNING_WAIT = config['time']['warning_cooldown']
+_WARNING_COOLDOWN = config['time']['warning_cooldown']
 # Maxmimum time after last usage to consider a process active
-_ACTIVE_TIME = config['time']['min_idle_time']
+_MIN_IDLE_TIME = config['time']['min_idle_time']
 # timeouts in percent memory vs time idle
 # Defaults:
 # 50% of memory, warn immediately
@@ -42,7 +42,35 @@ _ACTIVE_TIME = config['time']['min_idle_time']
 # 10% of memory, warn after 1 day
 # 5% of memory, warn after 1 week
 # 1% of memory, warn after 1 month
-_MEMORY_IDLE_TIMEOUTS = config['memory']['idle_timeout_hours']
+_IDLE_TIMEOUT_HOURS = config['memory']['idle_timeout_hours']
+
+
+def print_config():
+    print("""memory-monitor
+
+Configuration (config.yml):
+  System memory: {total_memory:.1f}GB
+  System critical warning memory threshold: {critical_total:.1f}GB ({critical_percent:.2f}%)
+  Process group warnings: {group_warnings}
+  Processes considered idle after: {min_idle_time:d} seconds
+  Processes considered idle with CPU usage less than: {active_usage:.1f}%
+  Processes polled every: {update:d} seconds
+  Maximum warning frequency: {warning_cooldown:d} seconds
+  Warnings will be sent to: {email:s}
+""".format(
+        total_memory=_TOTAL_MEMORY,
+        critical_percent=_CRITICAL_FRACTION * 100,
+        critical_total=_CRITICAL_FRACTION * _TOTAL_MEMORY,
+        group_warnings="\n" + "\n".join([
+            "    {percent:.1f}% of memory ({total:.1f}GB), warn after {time:d} hours".format(
+                percent=fraction * 100, total=fraction * _TOTAL_MEMORY, time=time)
+            for fraction, time in _IDLE_TIMEOUT_HOURS.items()]),
+        min_idle_time=_MIN_IDLE_TIME,
+        warning_cooldown=_WARNING_COOLDOWN,
+        active_usage=_ACTIVE_USAGE * 100,
+        update=_UPDATE,
+        email=config['email']
+    ), file=sys.stderr)
 
 # Slack parameters
 _SYSTEM_WARNING = """Critical warning: {uname} memory usage high: {available:.1f}GB of {total:.1f}GB available ({percentage:.2f}%)."""
@@ -103,27 +131,27 @@ class ProcessGroup():
         return self.memory_fraction * 100
 
     def recently_warned(self, timeout):
-        global _MIN_WARNING_WAIT
+        global _WARNING_COOLDOWN
         if self.last_warning is None:
             return False
         else:
             since_last_warning = (time.time() - self.last_warning)
-            return since_last_warning <= max(timeout, _MIN_WARNING_WAIT)
+            return since_last_warning <= max(timeout, _WARNING_COOLDOWN)
 
     def update(self, cputime, memory):
-        global _MIN_CPU_USAGE
+        global _ACTIVE_USAGE
         self.memory = memory
         cpu_since_update = cputime - self.cputime
-        if cpu_since_update > _MIN_CPU_USAGE * _UPDATE_STEP:
+        if cpu_since_update > _ACTIVE_USAGE * _UPDATE:
             self.last_cpu_time = time.time()
         self.cputime = cputime
 
     def check(self):
-        global _MEMORY_IDLE_TIMEOUTS
-        cutoffs = np.array(list(_MEMORY_IDLE_TIMEOUTS.keys()))
+        global _IDLE_TIMEOUT_HOURS
+        cutoffs = np.array(list(_IDLE_TIMEOUT_HOURS.keys()))
         if self.memory_fraction > np.min(cutoffs):
             cutoff = np.max(cutoffs[cutoffs < self.memory_fraction])
-            timeout = _MEMORY_IDLE_TIMEOUTS[cutoff]
+            timeout = _IDLE_TIMEOUT_HOURS[cutoff]
             if self.idle_hours > timeout:
                 if not self.recently_warned(timeout):
                     # warn
@@ -158,8 +186,8 @@ class ProcessGroup():
         return "<PGID {} ({})>".format(self.pgid, self.user)
 
     def __str__(self):
-        global _ACTIVE_TIME
-        if self.idle_seconds > _ACTIVE_TIME:
+        global _MIN_IDLE_TIME
+        if self.idle_seconds > _MIN_IDLE_TIME:
             idle_str = "idle for {:.2f} hours".format(self.idle_hours)
         else:
             idle_str = "active"
@@ -170,11 +198,15 @@ class ProcessGroup():
 class MemoryMonitor():
 
     def __init__(self):
-        self.superuser = os.geteuid() == 0
-        if not self.superuser:
+        self.superuser = self.check_superuser()
+        self.processes = dict()
+
+    def check_superuser(self):
+        superuser = os.geteuid() == 0
+        if not superuser:
             print("memory-monitor does not have superuser privileges. "
                   "Monitoring user processes only.", file=sys.stderr)
-        self.processes = dict()
+        return superuser
 
     def fetch_processes(self):
         global _KILOBYTE
@@ -188,11 +220,11 @@ class MemoryMonitor():
                                 delimiter=' ', skipinitialspace=True,
                                 fieldnames=['pgid', 'pid', 'rss', 'cputime', 'user'])
         df = pd.DataFrame([r for r in reader])
+        if df.shape[0] == 0:
+            raise RuntimeError("ps output is empty.")
         if not self.superuser:
             # only local user
-            print(df.shape)
             df = df.loc[df['user'] == os.environ['USER']]
-            print(df.shape)
         # convert to numeric
         df['pgid'] = df['pgid'].values.astype(int)
         df['pid'] = df['pid'].values.astype(int)
@@ -253,8 +285,8 @@ class MemoryMonitor():
     def check(self):
         system_mem = self.fetch_total()
         global _GIGABYTE
-        global _MEMORY_CRITICAL
-        if system_mem['available'] < _MEMORY_CRITICAL * system_mem['total']:
+        global _CRITICAL_FRACTION
+        if system_mem['available'] < _CRITICAL_FRACTION * system_mem['total']:
             self.log(system_mem, "Warning")
             self.warn(system_mem)
             return 1
@@ -291,7 +323,8 @@ class MemoryMonitor():
 
 
 if __name__ == "__main__":
+    print_config()
     m = MemoryMonitor()
     while True:
         m.update()
-        time.sleep(_UPDATE_STEP)
+        time.sleep(_UPDATE)
