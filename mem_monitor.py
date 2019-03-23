@@ -90,6 +90,7 @@ Configuration (config.yml):
         email=config['email']
     ), file=sys.stderr)
 
+
 # Slack parameters
 _SYSTEM_WARNING = """Critical warning: {uname} memory usage high: {available:.1f}GB of {total:.1f}GB available ({percentage:.2f}%)."""
 _USER_WARNING = """Warning: {user}'s process group {pgid} has been idle since {last_cpu} ({idle_hours:.1f} hours ago) and is using {memory:.1f}GB ({percentage:.2f}%) of RAM. Kill it with `kill -- -{pgid}`."""
@@ -150,11 +151,12 @@ class ProcessGroup():
 
     def recently_warned(self, timeout):
         global _WARNING_COOLDOWN
+        global _HOUR
         if self.last_warning is None:
             return False
         else:
             since_last_warning = (time.time() - self.last_warning)
-            return since_last_warning <= max(timeout, _WARNING_COOLDOWN)
+            return since_last_warning <= max(timeout * _HOUR, _WARNING_COOLDOWN)
 
     def update(self, cputime, memory):
         global _ACTIVE_USAGE
@@ -197,6 +199,7 @@ class ProcessGroup():
             percentage=self.memory_percent)
 
     def warn(self):
+        self.last_warning = time.time()
         send_mail(subject="Memory Usage Warning",
                   message=self.format_warning())
 
