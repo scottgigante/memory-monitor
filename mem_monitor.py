@@ -200,7 +200,7 @@ class ProcessGroup():
 
     def warn(self):
         self.last_warning = time.time()
-        send_mail(subject="Memory Usage Warning",
+        send_mail(subject="Memory Usage Warning: {}".format(self.user),
                   message=self.format_warning())
 
     def __repr__(self):
@@ -335,7 +335,7 @@ class MemoryMonitor():
             percentage=self.system_available_percent(system_mem))
 
     def warn(self, system_mem):
-        send_mail(subject="Memory Critical",
+        send_mail(subject="System Memory Critical",
                   message=self.format_warning(system_mem))
 
     def update(self):
