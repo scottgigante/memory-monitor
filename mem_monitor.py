@@ -346,6 +346,7 @@ class MemoryMonitor():
             terminate_process.terminate()
             self.log(system_mem, "Warning (terminated {})".format(
                 terminate_process.pgid))
+            self.warn(system_mem, terminate_process=terminate_process)
             self.update_processes()
             return self.check()
         elif system_mem['available'] < _CRITICAL_FRACTION * system_mem['total']:
