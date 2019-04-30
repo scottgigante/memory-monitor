@@ -1,6 +1,9 @@
 memory:
   __units: fraction of total memory
   critical_fraction: 0.1
+  terminate:
+    active: false
+    terminate_fraction: 0.025
   idle_timeout_hours:
     0.5: 0
     0.2: 6

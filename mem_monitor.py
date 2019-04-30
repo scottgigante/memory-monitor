@@ -25,6 +25,7 @@ import os
 import sys
 import yaml
 import platform
+import shutil
 
 # System constants
 # Size of 1GB in B
@@ -37,12 +38,26 @@ _HOUR = 3600.
 _TOTAL_MEMORY = os.sysconf('SC_PAGE_SIZE') * \
     os.sysconf('SC_PHYS_PAGES') / _GIGABYTE
 
+
+def load_config():
+    with open("config.yml", 'r') as handle:
+        return yaml.load(handle.read())
+
+
 # Configuration
-with open("config.yml", 'r') as handle:
-    config = yaml.load(handle.read())
+try:
+    config = load_config()
+except FileNotFoundError:
+    # no config found, use default config
+    shutil.copyfile("config.default", "config.yml")
+    config = load_config()
 
 # Proportion of available memory for which we launch an alert
 _CRITICAL_FRACTION = config['memory']['critical_fraction']
+# Proportion of available memory for which we launch an alert
+_TERMINATE_ACTIVE = config['memory']['terminate']['active']
+# Proportion of available memory for which we launch an alert
+_TERMINATE_FRACTION = config['memory']['terminate']['terminate_fraction']
 # Amount of time between updates
 _UPDATE = config['time']['update']
 
@@ -69,6 +84,7 @@ def print_config():
 Configuration (config.yml):
   System memory: {total_memory:.1f}GB
   System critical warning memory threshold: {critical_total:.1f}GB ({critical_percent:.2f}%)
+  System critical process termination: {termination}
   Process group warnings: {group_warnings}
   Processes considered idle after: {min_idle_time:d} seconds
   Processes considered idle with CPU usage less than: {active_usage:.1f}%
@@ -79,6 +95,10 @@ Configuration (config.yml):
         total_memory=_TOTAL_MEMORY,
         critical_percent=_CRITICAL_FRACTION * 100,
         critical_total=_CRITICAL_FRACTION * _TOTAL_MEMORY,
+        termination="Active\n    System critical process termination memory threshold: {termination_total:.1f}GB ({termination_percent:.2f}%)".format(
+            termination_percent=_TERMINATE_FRACTION * 100,
+            termination_total=_TERMINATE_FRACTION * _TOTAL_MEMORY,
+        ) if _TERMINATE_ACTIVE else "Inactive",
         group_warnings="\n" + "\n".join([
             "    {percent:.1f}% of memory ({total:.1f}GB), warn after {time:d} hours".format(
                 percent=fraction * 100, total=fraction * _TOTAL_MEMORY, time=time)
@@ -93,6 +113,7 @@ Configuration (config.yml):
 
 # Slack parameters
 _SYSTEM_WARNING = """Critical warning: {uname} memory usage high: {available:.1f}GB of {total:.1f}GB available ({percentage:.2f}%)."""
+_TERMINATE_WARNING = """\n\nTerminated {user}'s process group {pgid} and freed {memory:.1f}GB ({percentage:.2f}%) of RAM."""
 _USER_WARNING = """Warning: {user}'s process group {pgid} has been idle since {last_cpu} ({idle_hours:.1f} hours ago) and is using {memory:.1f}GB ({percentage:.2f}%) of RAM. Kill it with `kill -- -{pgid}`."""
 
 
@@ -203,6 +224,9 @@ class ProcessGroup():
         send_mail(subject="Memory Usage Warning: {}".format(self.user),
                   message=self.format_warning())
 
+    def terminate(self):
+        subprocess.run(["kill", "--", "-{}".format(self.pgid)])
+
     def __repr__(self):
         return "<PGID {} ({})>".format(self.pgid, self.user)
 
@@ -303,11 +327,28 @@ class MemoryMonitor():
             # pgid disappeared, must have ended
             del self.processes[pgid]
 
+    def highest_usage_process(self):
+        highest_usage = 0
+        for pgid, process in self.processes.items():
+            if process.memory > highest_usage:
+                highest_usage_process = process
+                highest_usage = process.memory
+        return highest_usage_process
+
     def check(self):
         system_mem = self.fetch_total()
         global _GIGABYTE
         global _CRITICAL_FRACTION
-        if system_mem['available'] < _CRITICAL_FRACTION * system_mem['total']:
+        global _TERMINATE_FRACTION
+        global _TERMINATE_ACTIVE
+        if _TERMINATE_ACTIVE and system_mem['available'] < _TERMINATE_FRACTION * system_mem['total']:
+            terminate_process = self.highest_usage_process()
+            terminate_process.terminate()
+            self.log(system_mem, "Warning (terminated {})".format(
+                terminate_process.pgid))
+            self.update_processes()
+            return self.check()
+        elif system_mem['available'] < _CRITICAL_FRACTION * system_mem['total']:
             self.log(system_mem, "Warning")
             self.warn(system_mem)
             return 1
@@ -326,17 +367,32 @@ class MemoryMonitor():
             self.system_available_percent(system_mem)
         ), file=sys.stderr)
 
-    def format_warning(self, system_mem):
+    def format_warning(self, system_mem, terminate_process=None):
         global _SYSTEM_WARNING
-        return _SYSTEM_WARNING.format(
+        global _TERMINATE_WARNING
+        warning = _SYSTEM_WARNING.format(
             uname=platform.uname().node,
             available=system_mem['available'],
             total=system_mem['total'],
             percentage=self.system_available_percent(system_mem))
+        if terminate_process is not None:
+            warning += _TERMINATE_WARNING.format(
+                user=terminate_process.user,
+                pgid=terminate_process.pgid,
+                memory=terminate_process.memory,
+                percentage=terminate_process.memory_percent)
+        return warning
 
-    def warn(self, system_mem):
-        send_mail(subject="System Memory Critical",
-                  message=self.format_warning(system_mem))
+    def warn(self, system_mem, terminate_process=None):
+        if terminate_process is None:
+            subject = "System Memory Critical"
+        else:
+            subject = "System Memory Critical (Terminated {})".format(
+                terminate_process.pgid)
+        send_mail(subject=subject,
+                  message=self.format_warning(
+                      system_mem,
+                      terminate_process=terminate_process))
 
     def update(self):
         self.update_processes()
