@@ -151,6 +151,7 @@ class ProcessGroup():
         self.start_time = time.time()
         self.last_cpu_time = time.time()
         self.last_warning = None
+        self.total_warnings = 0
 
     @property
     def idle_seconds(self):
@@ -196,11 +197,11 @@ class ProcessGroup():
             if self.idle_hours > timeout:
                 if not self.recently_warned(timeout):
                     # warn
-                    self.log("Warning")
                     self.warn()
+                    self.log(self.warning_string())
                     return 1
                 else:
-                    self.log("Warning (muted)")
+                    self.log("{}, muted".format(self.warning_string()))
                     return 1
             else:
                 self.log("OK")
@@ -208,6 +209,12 @@ class ProcessGroup():
 
     def log(self, code="OK"):
         print("{}: {}".format(code, self), file=sys.stderr)
+
+    def warning_string(self):
+        if self.total_warnings < 2:
+            return "Warning"
+        else:
+            return "Warning ({}x)".format(self.total_warnings)
 
     def format_warning(self):
         global _USER_WARNING
@@ -220,8 +227,9 @@ class ProcessGroup():
             percentage=self.memory_percent)
 
     def warn(self):
+        self.total_warnings += 1
         self.last_warning = time.time()
-        send_mail(subject="Memory Usage Warning: {}".format(self.user),
+        send_mail(subject="Memory Usage {}: {}".format(self.warning_string(), self.user),
                   message=self.format_warning())
 
     def terminate(self):
