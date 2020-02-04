@@ -38,10 +38,11 @@ _HOUR = 3600.
 _TOTAL_MEMORY = os.sysconf('SC_PAGE_SIZE') * \
     os.sysconf('SC_PHYS_PAGES') / _GIGABYTE
 
+_CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def load_config():
-    with open("config.yml", 'r') as handle:
-        return yaml.load(handle.read())
+    with open(os.path.join(_CONFIG_DIR, "config.yml"), 'r') as handle:
+        return yaml.load(handle.read(), Loader=yaml.FullLoader)
 
 
 # Configuration
@@ -49,7 +50,8 @@ try:
     config = load_config()
 except FileNotFoundError:
     # no config found, use default config
-    shutil.copyfile("config.default", "config.yml")
+    shutil.copyfile(os.path.join(_CONFIG_DIR, "config.default"),
+                    os.path.join(_CONFIG_DIR, "config.yml"))
     config = load_config()
 
 # Proportion of available memory for which we launch an alert
@@ -76,6 +78,11 @@ _MIN_IDLE_TIME = config['time']['min_idle_time']
 # 5% of memory, warn after 1 week
 # 1% of memory, warn after 1 month
 _IDLE_TIMEOUT_HOURS = config['memory']['idle_timeout_hours']
+
+__print__ = print
+def print(msg, file=sys.stderr):
+    __print__(msg, file=file)
+    file.flush()
 
 
 def print_config():
@@ -108,7 +115,7 @@ Configuration (config.yml):
         active_usage=_ACTIVE_USAGE * 100,
         update=_UPDATE,
         email=config['email']
-    ), file=sys.stderr)
+    ))
 
 
 # Slack parameters
@@ -208,7 +215,7 @@ class ProcessGroup():
         return 0
 
     def log(self, code="OK"):
-        print("{}: {}".format(code, self), file=sys.stderr)
+        print("{}: {}".format(code, self))
 
     def warning_string(self):
         if self.total_warnings < 2:
@@ -258,7 +265,7 @@ class MemoryMonitor():
         superuser = os.geteuid() == 0
         if not superuser:
             print("memory-monitor does not have superuser privileges. "
-                  "Monitoring user processes only.", file=sys.stderr)
+                  "Monitoring user processes only.")
         return superuser
 
     def fetch_processes(self):
@@ -374,7 +381,7 @@ class MemoryMonitor():
             system_mem['available'],
             system_mem['total'],
             self.system_available_percent(system_mem)
-        ), file=sys.stderr)
+        ))
 
     def format_warning(self, system_mem, terminate_process=None):
         global _SYSTEM_WARNING
