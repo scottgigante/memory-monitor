@@ -26,6 +26,14 @@ import sys
 import yaml
 import platform
 import shutil
+import datetime
+import pynvml
+
+try:
+    pynvml.nvmlInit()
+    _N_GPU = pynvml.nvmlDeviceGetCount()
+except pynvml.NVMLError_LibraryNotFound:
+    _N_GPU = 0
 
 # System constants
 # Size of 1GB in B
@@ -81,6 +89,21 @@ _MIN_IDLE_TIME = config["time"]["min_idle_time"]
 # 1% of memory, warn after 1 month
 _IDLE_TIMEOUT_HOURS = config["memory"]["idle_timeout_hours"]
 
+_LOG_ACTIVE = config["log"]["active"]
+
+
+def get_log_path(filename):
+    filename = os.path.abspath(filename)
+    log_dirname = os.path.dirname(filename)
+    log_basename = os.path.basename(filename)
+    filename = os.path.join(
+        log_dirname, "{}_{}".format(datetime.date.today(), log_basename)
+    )
+    return filename
+
+
+_LOG_FILENAME = get_log_path(config["log"]["filename"])
+
 __print__ = print
 
 
@@ -90,47 +113,53 @@ def print(msg, file=sys.stderr):
 
 
 def print_config():
-    print(
-        """memory-monitor
+    if _TERMINATE_ACTIVE:
+        termination = "Active\n    System critical process termination memory threshold: {termination_total:.1f}GB ({termination_percent:.2f}%)".format(
+            termination_percent=_TERMINATE_FRACTION * 100,
+            termination_total=_TERMINATE_FRACTION * _TOTAL_MEMORY,
+        )
+    else:
+        termination = "Inactive"
+    if _LOG_ACTIVE:
+        logging = _LOG_FILENAME
+    else:
+        logging = "Inactive"
+    group_warnings = "\n".join(
+        [
+            "    {percent:.1f}% of memory ({total:.1f}GB), warn after {time:d} hours".format(
+                percent=fraction * 100, total=fraction * _TOTAL_MEMORY, time=time,
+            )
+            for fraction, time in _IDLE_TIMEOUT_HOURS.items()
+        ]
+    )
+    config_log = """memory-monitor
 
 Configuration (config.yml):
   System memory: {total_memory:.1f}GB
   System critical warning memory threshold: {critical_total:.1f}GB ({critical_percent:.2f}%)
   System critical process termination: {termination}
-  Process group warnings: {group_warnings}
+  Process group warnings:
+{group_warnings:s}
   Processes considered idle after: {min_idle_time:d} seconds
   Processes considered idle with CPU usage less than: {active_usage:.1f}%
   Processes polled every: {update:d} seconds
   Maximum warning frequency: {warning_cooldown:d} seconds
   Warnings will be sent to: {email:s}
+  Usage logging: {logging:s}
 """.format(
-            total_memory=_TOTAL_MEMORY,
-            critical_percent=_CRITICAL_FRACTION * 100,
-            critical_total=_CRITICAL_FRACTION * _TOTAL_MEMORY,
-            termination="Active\n    System critical process termination memory threshold: {termination_total:.1f}GB ({termination_percent:.2f}%)".format(
-                termination_percent=_TERMINATE_FRACTION * 100,
-                termination_total=_TERMINATE_FRACTION * _TOTAL_MEMORY,
-            )
-            if _TERMINATE_ACTIVE
-            else "Inactive",
-            group_warnings="\n"
-            + "\n".join(
-                [
-                    "    {percent:.1f}% of memory ({total:.1f}GB), warn after {time:d} hours".format(
-                        percent=fraction * 100,
-                        total=fraction * _TOTAL_MEMORY,
-                        time=time,
-                    )
-                    for fraction, time in _IDLE_TIMEOUT_HOURS.items()
-                ]
-            ),
-            min_idle_time=_MIN_IDLE_TIME,
-            warning_cooldown=_WARNING_COOLDOWN,
-            active_usage=_ACTIVE_USAGE * 100,
-            update=_UPDATE,
-            email=config["email"],
-        )
+        total_memory=_TOTAL_MEMORY,
+        critical_percent=_CRITICAL_FRACTION * 100,
+        critical_total=_CRITICAL_FRACTION * _TOTAL_MEMORY,
+        termination=termination,
+        group_warnings=group_warnings,
+        min_idle_time=_MIN_IDLE_TIME,
+        warning_cooldown=_WARNING_COOLDOWN,
+        active_usage=_ACTIVE_USAGE * 100,
+        update=_UPDATE,
+        email=config["email"],
+        logging=logging,
     )
+    print(config_log)
 
 
 # Slack parameters
@@ -167,6 +196,7 @@ class ProcessGroup:
         self.user = user
         self.memory = memory
         self.cputime = cputime
+        self.cputime_since_update = 0
         self.start_time = time.time()
         self.last_cpu_time = time.time()
         self.last_warning = None
@@ -202,8 +232,8 @@ class ProcessGroup:
     def update(self, cputime, memory):
         global _ACTIVE_USAGE
         self.memory = memory
-        cpu_since_update = cputime - self.cputime
-        if cpu_since_update > _ACTIVE_USAGE * _UPDATE:
+        self.cputime_since_update = cputime - self.cputime
+        if self.cputime_since_update > _ACTIVE_USAGE * _UPDATE:
             self.last_cpu_time = time.time()
         self.cputime = cputime
 
@@ -275,6 +305,17 @@ class MemoryMonitor:
     def __init__(self):
         self.superuser = self.check_superuser()
         self.processes = dict()
+        self.init_logfile()
+
+    def init_logfile(self):
+        if _LOG_ACTIVE:
+            self.logfile = _LOG_FILENAME
+            if not os.path.isfile(self.logfile):
+                with open(self.logfile, "w") as handle:
+                    headers = ["date", "time", "cpu", "ram"]
+                    for i in range(_N_GPU):
+                        headers += ["gpu{}_util".format(i), "gpu{}_ram".format(i)]
+                    print("\t".join(headers), file=handle)
 
     def check_superuser(self):
         superuser = os.geteuid() == 0
@@ -333,7 +374,7 @@ class MemoryMonitor:
         )
         return df
 
-    def fetch_total(self):
+    def fetch_total_memory(self):
         global _KILOBYTE
         global _GIGABYTE
         # run ps
@@ -351,6 +392,25 @@ class MemoryMonitor:
         for k, v in system_mem.items():
             system_mem[k] = int(v) * _KILOBYTE / _GIGABYTE
         return system_mem
+
+    def fetch_total_cpu(self):
+        cputime = 0
+        for process in self.processes.values():
+            cputime += process.cputime_since_update
+        return cputime / _UPDATE
+
+    def fetch_gpu_stats(self):
+        stats = {}
+        for i in range(_N_GPU):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
+            stats[i] = {
+                "gpu_util": util,
+                "ram_free": memory_info.free,
+                "ram_total": memory_info.total,
+            }
+        return stats
 
     def update_processes(self):
         print("[{}]".format(format_time(time.time())))
@@ -382,7 +442,7 @@ class MemoryMonitor:
         return highest_usage_process
 
     def check(self):
-        system_mem = self.fetch_total()
+        system_mem = self.fetch_total_memory()
         global _GIGABYTE
         global _CRITICAL_FRACTION
         global _TERMINATE_FRACTION
@@ -410,7 +470,29 @@ class MemoryMonitor:
     def system_available_percent(self, system_mem):
         return system_mem["available"] / system_mem["total"] * 100
 
+    def log_usage(self, system_mem):
+        gpu_stats = self.fetch_gpu_stats()
+        date, time = datetime.datetime.now().isoformat("@", "seconds").split("@")
+        cpu = self.fetch_total_cpu()
+        fmt = lambda x, p: str(np.round(x, p))
+        output = [
+            date,
+            time,
+            fmt(cpu, 2),
+            fmt(1 - system_mem["free"] / system_mem["total"], 3),
+        ]
+        gpu_stats = self.fetch_gpu_stats()
+        for i in range(_N_GPU):
+            output += [
+                str(gpu_stats[i]["gpu_util"]),
+                fmt(1 - gpu_stats[i]["ram_free"] / gpu_stats[i]["ram_total"], 3),
+            ]
+        with open(self.logfile, "a") as handle:
+            print("\t".join(output), file=handle)
+
     def log(self, system_mem, code="OK"):
+        if _LOG_ACTIVE:
+            self.log_usage(system_mem)
         print(
             "{}: {:.1f}GB of {:.1f}GB available ({:.2f}%).".format(
                 code,
