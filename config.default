@@ -19,6 +19,6 @@ cpu:
   __units: logical cores
   active_usage: 0.05
 log:
-  active: true
+  active: false
   filename: /var/log/mem_monitor/mem_monitor.log
 email: your@email.com
