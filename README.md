@@ -33,3 +33,7 @@ Configuration (config.yml):
   Maximum warning frequency: 3600 seconds
   Warnings will be sent to: your@email.com
 ```
+
+## `systemd`
+
+You can run `mem-monitor` automatically on boot with `systemd`. A sample service file is included.
