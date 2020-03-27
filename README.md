@@ -36,4 +36,20 @@ Configuration (config.yml):
 
 ## `systemd`
 
-You can run `mem-monitor` automatically on boot with `systemd`. A sample service file is included.
+You can run `mem-monitor` automatically on boot with `systemd`. A sample service file is included. You can set it up as follows:
+
+```
+git clone https://github.com/scottgigante/memory-monitor
+cd memory-monitor
+cp config.default config.yml
+# modify the config as necessary
+vim config.yml
+
+sudo cp mem-monitor.service /etc/systemd/system/
+sudo mkdir /etc/systemd/system/mem_monitor/
+sudo cp mem_monitor.py /etc/systemd/system/mem_monitor/
+sudo cp config.yml /etc/systemd/system/mem_monitor/
+sudo systemctl daemon-reload
+sudo systemctl enable mem-monitor
+sudo systemctl start mem-monitor
+```
