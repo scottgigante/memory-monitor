@@ -232,7 +232,7 @@ class ProcessGroup:
     def update(self, cputime, memory):
         global _ACTIVE_USAGE
         self.memory = memory
-        self.cputime_since_update = cputime - self.cputime
+        self.cputime_since_update = max(cputime - self.cputime, 0)
         if self.cputime_since_update > _ACTIVE_USAGE * _UPDATE:
             self.last_cpu_time = time.time()
         self.cputime = cputime
