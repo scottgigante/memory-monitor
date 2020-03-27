@@ -1,0 +1,15 @@
+[Unit]
+Description=Monitor user memory usage
+
+[Service]
+Type=simple
+User=root
+Restart=on-abnormal
+ExecStart=/usr/bin/python /etc/systemd/system/mem_monitor/mem_monitor.py
+Nice=19
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
+
