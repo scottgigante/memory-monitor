@@ -20,5 +20,5 @@ cpu:
   active_usage: 0.05
 log:
   active: false
-  filename: mem_monitor.log
+  filename: /var/log/mem_monitor/mem_monitor.log
 email: your@email.com

@@ -46,6 +46,7 @@ cp config.default config.yml
 vim config.yml
 
 sudo cp mem-monitor.service /etc/systemd/system/
+sudo mkdir /var/log/mem_monitor
 sudo mkdir /etc/systemd/system/mem_monitor/
 sudo cp mem_monitor.py /etc/systemd/system/mem_monitor/
 sudo cp config.yml /etc/systemd/system/mem_monitor/
