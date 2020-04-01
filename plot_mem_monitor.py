@@ -41,8 +41,8 @@ def plot_usage(df, filename, gpu=None, c1='tab:red', c2='tab:blue'):
     ax2.set_ylabel(ram_label)
     ax1.set_xlabel("Date")
     
-    ax1.set_ylim(0, np.max(df[cpu]))
-    ax2.set_ylim(0, np.max(df[ram]))
+    ax1.set_ylim(0, np.max(df[cpu]) * 1.05)
+    ax2.set_ylim(0, np.max(df[ram]) * 1.05)
 
     ax1.yaxis.label.set_color(c1)
     ax2.yaxis.label.set_color(c2)
