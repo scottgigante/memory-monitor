@@ -1,7 +1,7 @@
 # memory-monitor polls process group memory usage and sends real-time
 # updates and warnings by both terminal output and email.
 
-# Copyright (C) 20 Scott Gigante, scottgigante@gmail.com
+# Copyright (C) 2020 Scott Gigante, scottgigante@gmail.com
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
