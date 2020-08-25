@@ -1,7 +1,7 @@
 # memory-monitor polls process group memory usage and sends real-time
 # updates and warnings by both terminal output and email.
 
-# Copyright (C) 2019 Scott Gigante, scottgigante@gmail.com
+# Copyright (C) 20 Scott Gigante, scottgigante@gmail.com
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -398,7 +398,6 @@ class MemoryMonitor:
                 # For swap, add "free" to "available"
                 if curr_mem["source"] == "Swap:" and k == "free":
                     system_mem["available"] += v_readable
-        print(system_mem)
         return system_mem
 
     def fetch_total_cpu(self):
