@@ -377,6 +377,7 @@ class MemoryMonitor:
     def fetch_total_memory(self):
         global _KILOBYTE
         global _GIGABYTE
+        fieldnames = ["source", "total", "used", "free", "shared", "cache", "available"]
         # run ps
         stdout, _ = subprocess.Popen(["free"], stdout=subprocess.PIPE).communicate()
         # read into data frame
@@ -384,13 +385,20 @@ class MemoryMonitor:
             stdout.decode("ascii").splitlines()[1:],
             delimiter=" ",
             skipinitialspace=True,
-            fieldnames=["", "total", "used", "free", "shared", "cache", "available"],
+            fieldnames=fieldnames,
         )
         # total system memory memory
-        system_mem = next(reader)
-        del system_mem[""]
-        for k, v in system_mem.items():
-            system_mem[k] = int(v) * _KILOBYTE / _GIGABYTE
+        system_mem = {fn:0 for fn in fieldnames}
+        for curr_mem in reader:
+            for k, v in curr_mem.items():
+                if k == "source": continue
+                if v is None: continue
+                v_readable = int(v) * _KILOBYTE / _GIGABYTE
+                system_mem[k] += v_readable
+                # For swap, add "free" to "available"
+                if curr_mem["source"] == "Swap:" and k == "free":
+                    system_mem["available"] += v_readable
+        print(system_mem)
         return system_mem
 
     def fetch_total_cpu(self):
