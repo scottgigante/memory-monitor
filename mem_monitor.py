@@ -165,7 +165,8 @@ Configuration (config.yml):
 # Slack parameters
 _SYSTEM_WARNING = """Critical warning: {uname} memory usage high: {available:.1f}GB of {total:.1f}GB available ({percentage:.2f}%)."""
 _TERMINATE_WARNING = """\n\nTerminated {user}'s process group {pgid} and freed {memory:.1f}GB ({percentage:.2f}%) of RAM."""
-_USER_WARNING = """Warning: {user}'s process group {pgid} has been idle since {last_cpu} ({idle_hours:.1f} hours ago) and is using {memory:.1f}GB ({percentage:.2f}%) of RAM. Kill it with `kill -- -{pgid}`."""
+_IDLE_MESSAGE = """has been idle since {last_cpu} ({idle_hours:.1f} hours ago) and """
+_USER_WARNING = """Warning: {user}'s process group {pgid} {idle_message}is using {memory:.1f}GB ({percentage:.2f}%) of RAM. Kill it with `kill -- -{pgid}`."""
 
 
 def send_mail(subject, message):
@@ -267,11 +268,15 @@ class ProcessGroup:
 
     def format_warning(self):
         global _USER_WARNING
+        global _IDLE_MESSAGE
+        idle_message = "" if self.idle_hours == 0 else _IDLE_MESSAGE.format(
+            last_cpu=format_time(self.last_cpu_time),
+            idle_hours=self.idle_hours,
+        )
         return _USER_WARNING.format(
             user=self.user,
             pgid=self.pgid,
-            last_cpu=format_time(self.last_cpu_time),
-            idle_hours=self.idle_hours,
+            idle_message=idle_message,
             memory=self.memory,
             percentage=self.memory_percent,
         )
