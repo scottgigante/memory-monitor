@@ -127,7 +127,9 @@ def print_config():
     group_warnings = "\n".join(
         [
             "    {percent:.1f}% of memory ({total:.1f}GB), warn after {time:d} hours".format(
-                percent=fraction * 100, total=fraction * _TOTAL_MEMORY, time=time,
+                percent=fraction * 100,
+                total=fraction * _TOTAL_MEMORY,
+                time=time,
             )
             for fraction, time in _IDLE_TIMEOUT_HOURS.items()
         ]
@@ -269,9 +271,13 @@ class ProcessGroup:
     def format_warning(self):
         global _USER_WARNING
         global _IDLE_MESSAGE
-        idle_message = "" if self.idle_hours == 0 else _IDLE_MESSAGE.format(
-            last_cpu=format_time(self.last_cpu_time),
-            idle_hours=self.idle_hours,
+        idle_message = (
+            ""
+            if self.idle_hours == 0
+            else _IDLE_MESSAGE.format(
+                last_cpu=format_time(self.last_cpu_time),
+                idle_hours=self.idle_hours,
+            )
         )
         return _USER_WARNING.format(
             user=self.user,
@@ -393,11 +399,13 @@ class MemoryMonitor:
             fieldnames=fieldnames,
         )
         # total system memory memory
-        system_mem = {fn:0 for fn in fieldnames}
+        system_mem = {fn: 0 for fn in fieldnames}
         for curr_mem in reader:
             for k, v in curr_mem.items():
-                if k == "source": continue
-                if v is None: continue
+                if k == "source":
+                    continue
+                if v is None:
+                    continue
                 v_readable = int(v) * _KILOBYTE / _GIGABYTE
                 system_mem[k] += v_readable
                 # For swap, add "free" to "available"
